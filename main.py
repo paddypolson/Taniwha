@@ -206,14 +206,17 @@ class Taniwha:
 
 class Fish:
 
-    def __init__(self, limits):
+    def __init__(self, limits, bubble_handler):
 
         random_y = random.randint(0, limits.y - 100)
 
         self.direction = random.choice([-1, 1])
 
+        self.surface = pygame.image.load('Fish.png')
+
         if self.direction > 0:
             self.position = Position(0, random_y)
+            self.surface = pygame.transform.flip(self.surface, True, False)
 
         else:
             self.position = Position(limits.x, random_y)
@@ -222,8 +225,11 @@ class Fish:
 
         self.health_points = 1
 
-        self.surface = surface.Surface((64, 64))
-        self.surface.fill((0, 128, 255))
+        self.last_bubble = time.time()
+        self.bubble_handler = bubble_handler
+        self.bubble_time = random.uniform(0.9, 2.5)
+
+
 
     def point_collide(self, point):
 
@@ -236,21 +242,31 @@ class Fish:
     def update(self, time_elapsed, taniwha):
 
         self.position.x += self.speed * self.direction * time_elapsed
+        self.position.y += math.sin(self.position.x / 40) / 10
 
         if taniwha.lasers_on:
             if self.point_collide(taniwha.focal_point):
                 self.health_points -= time_elapsed
 
+        if time.time() > (self.last_bubble + self.bubble_time):
+            self.last_bubble = time.time()
+            bubble_start = Position(self.position.x, self.position.y)
+            self.bubble_handler(bubble_start)
+
 
 class Diver(Fish):
 
-    def __init__(self, limits):
+    def __init__(self, limits, bubble_handler):
 
-        Fish.__init__(self, limits)
+        Fish.__init__(self, limits, bubble_handler)
 
-        self.surface.fill((128, 128, 0))
+        self.surface = pygame.image.load('Diver.png')
 
         self.health_points = 2
+
+        self.bubble_period = random.uniform(0.3, 0.5)
+        self.last_bubble_lot = time.time()
+        self.bubble_time = random.uniform(0.05, 0.1)
 
         self.photo_distance = 100
         self.photo = False
@@ -285,20 +301,34 @@ class Diver(Fish):
             if self.point_collide(taniwha.focal_point):
                 self.health_points -= time_elapsed
 
+        current_time = time.time()
+
+        # Check for burst of bubbles
+        if current_time < (self.last_bubble_lot + self.bubble_period):
+
+            if current_time > (self.last_bubble + self.bubble_time):
+                self.last_bubble = time.time()
+                bubble_start = Position(self.position.x, self.position.y)
+                self.bubble_handler(bubble_start)
+
+            else:
+                self.last_bubble_lot = current_time
+
+
 
 class Bubble:
 
-    def __init__(self, pos):
+    def __init__(self, pos=Position()):
 
         self.position = pos
-        self.speed = 200
+        self.speed = 500
 
-        self.surface = surface.Surface((16, 16))
-        self.surface.fill((0, 64, 255))
+        self.surface = pygame.image.load('Bubble.png')
 
     def update(self, time_elapsed):
 
         self.position.y -= self.speed * time_elapsed
+        self.position.x += self.speed * time_elapsed * random.uniform(-1.3, 1.3)
 
 
 def point_outside(point, limits):
@@ -349,9 +379,14 @@ def main():
     number_fish = 5
     number_divers = 2
 
-    fish = [Fish(world_limits) for i in range(number_fish)]
-    divers = [Diver(world_limits) for i in range(number_divers)]
     bubbles = []
+
+    def create_bubble(pos):
+
+        bubbles.append(Bubble(pos))
+
+    fish = [Fish(world_limits, create_bubble) for i in range(number_fish)]
+    divers = [Diver(world_limits, create_bubble) for i in range(number_divers)]
 
     # Bubble particle check
     bubble_check = time.time()
@@ -404,7 +439,7 @@ def main():
                 fish.remove(f)
 
         if len(fish) < number_fish:
-            fish.append(Fish(world_limits))
+            fish.append(Fish(world_limits, create_bubble))
 
         divers_copy = divers
 
@@ -414,6 +449,12 @@ def main():
         for diver in divers_copy:
             if diver.health_points < 0:
                 divers.remove(diver)
+
+            if point_outside(diver.position, world_limits):
+                divers.remove(diver)
+
+        if len(divers) < number_divers:
+            divers.append(Diver(world_limits, create_bubble))
 
         # Update Bubbles
         bubbles_copy = bubbles
@@ -443,14 +484,15 @@ def main():
                 pygame.draw.line(window, (245, 50, 77), laser.start.get(), laser.focal.get(), 8)
                 pygame.draw.line(window, (215, 114, 94), laser.start.get(), laser.focal.get(), 3)
 
-                if current_time > (bubble_check + 0.1):
+                if current_time > (bubble_check + random.uniform(0.02, 0.05)):
                     bubble_check = current_time
-                    bubbles.append(Bubble(laser.focal))
+
+                    b_pos = Position(taniwha.focal_point.x, taniwha.focal_point.y)
+                    create_bubble(b_pos)
 
         for bubble in bubbles:
             window.blit(bubble.surface, bubble.position.get())
 
-        print bubbles
         pygame.display.update()
 
 

@@ -1,16 +1,14 @@
-import random
-
 __author__ = 'Paddy'
 
 '''
 Ludum Dare 33 - August 21st-24th | #LDJAM | U+2603 | Theme: You are the Monster
 '''
 
-import pygame
 import pygame.surface as surface
 import settings_parse
 import time
 import math
+from background import *
 
 
 class Position:
@@ -23,6 +21,10 @@ class Position:
     def get(self):
 
         return self.x, self.y
+
+    def get_center(self, surf):
+
+        return self.x - surf.get_rect().centerx, self.y - surf.get_rect().centery
 
     def move(self, x, y):
 
@@ -85,6 +87,45 @@ class Line:
         return self.end
 
 
+class EnergyBar:
+
+    def __init__(self, size):
+
+        self.position = Position(size.x - 288, size.y - 64)
+
+        self.energy_limit = 3
+        self.energy = 3
+        self.can_shoot = True
+        self.cool_down = 0
+
+        self.bar_surface = pygame.image.load('energybar.png')
+        self.bar_red = surface.Surface((256, 32))
+        self.bar_red.fill((255, 0, 0))
+
+        self.surface = surface.Surface((256, 32))
+
+    def can_shoot(self):
+
+        if self.cool_down <= 0:
+
+            return True
+
+        return False
+
+    def update(self, time_elapsed, shooting):
+
+        if self.energy < self.energy_limit:
+            self.energy += time_elapsed
+
+        if shooting:
+            if self.energy > 0:
+                self.energy -= time_elapsed
+
+            else:
+                self.cool_down = 1
+
+
+
 class Taniwha:
 
     def __init__(self, limits):
@@ -96,9 +137,10 @@ class Taniwha:
         self.speed = self.get_speed()
         self.direction = self.get_direction()
 
-        self.eyes = [Position(52, 15), Position(12, 15)]
+        self.eyes = [Position(-44, -12), Position(-22, -12)]
         self.lasers = [Line(), Line()]
         self.lasers_on = False
+        self.energy = 3
 
         for i in range(2):
             self.lasers[i].start = self.eyes[i]
@@ -106,10 +148,7 @@ class Taniwha:
         self.joystick = None
         self.limits = limits
 
-        self.surface = surface.Surface((64, 64))
-        self.surface.fill((128, 128, 0))
-        for eye in self.eyes:
-            pygame.draw.circle(self.surface, (0, 128, 0), eye.get(), 5)
+        self.surface = pygame.image.load('taniwha.png')
 
     def get_speed(self):
 
@@ -171,11 +210,28 @@ class Taniwha:
         if keys[pygame.K_s]:
             self.vector_point.y += self.acc * time_elapsed
 
+        # Bounding box
+        if 0 > self.position.x:
+            self.vector_point.x = self.surface.get_rect().width
+
+        if self.position.x > self.limits.x:
+            self.vector_point.x = -self.surface.get_rect().width
+
+        if 0 > self.position.y:
+            self.vector_point.y = self.surface.get_rect().height
+
+        if self.position.y > self.limits.y:
+            self.vector_point.y = -self.surface.get_rect().height
+
         if keys[pygame.K_SPACE]:
-            self.lasers_on = True
+            if self.energy > 0:
+                self.lasers_on = True
+                self.energy -= time_elapsed
 
         else:
             self.lasers_on = False
+            if self.energy <= 3:
+                self.energy += time_elapsed
 
         if self.joystick:
 
@@ -186,13 +242,14 @@ class Taniwha:
                 self.vector_point.y += self.joystick.get_axis(1) * self.acc * time_elapsed
 
             if self.joystick.get_axis(2) < -0.5:
-                self.lasers_on = True
+                if self.energy > 0:
+                    self.lasers_on = True
+                    self.energy -= time_elapsed
 
             else:
                 self.lasers_on = False
-
-        self.speed = self.get_speed()
-        self.direction = self.get_direction()
+                if self.energy <= 3:
+                    self.energy += time_elapsed
 
         x_move = self.vector_point.x * time_elapsed
         y_move = self.vector_point.y * time_elapsed
@@ -206,7 +263,7 @@ class Taniwha:
 
 class Fish:
 
-    def __init__(self, limits, bubble_handler):
+    def __init__(self, limits, bubble_handler, start=False):
 
         random_y = random.randint(0, limits.y - 100)
 
@@ -215,21 +272,29 @@ class Fish:
         self.surface = pygame.image.load('Fish.png')
 
         if self.direction > 0:
-            self.position = Position(0, random_y)
+            if start:
+                self.position = Position(random.randint(0, 500), random_y)
+
+            else:
+                self.position = Position(0, random_y)
+
             self.surface = pygame.transform.flip(self.surface, True, False)
 
         else:
-            self.position = Position(limits.x, random_y)
+            if start:
+                self.position = Position((limits.x - random.randint(0, 500)), random_y)
+
+            else:
+                self.position = Position(limits.x, random_y)
 
         self.speed = 100
 
         self.health_points = 1
+        self.dead = False
 
         self.last_bubble = time.time()
         self.bubble_handler = bubble_handler
         self.bubble_time = random.uniform(0.9, 2.5)
-
-
 
     def point_collide(self, point):
 
@@ -241,8 +306,16 @@ class Fish:
 
     def update(self, time_elapsed, taniwha):
 
-        self.position.x += self.speed * self.direction * time_elapsed
-        self.position.y += math.sin(self.position.x / 40) / 10
+        if self.health_points > 0:
+            self.position.x += self.speed * self.direction * time_elapsed
+            self.position.y += math.sin(self.position.x / 40) / 10
+
+        elif not self.dead:
+            self.surface = pygame.transform.flip(self.surface, False, True)
+            self.dead = True
+
+        else:
+            self.position.y -= self.speed * time_elapsed
 
         if taniwha.lasers_on:
             if self.point_collide(taniwha.focal_point):
@@ -256,11 +329,11 @@ class Fish:
 
 class Diver(Fish):
 
-    def __init__(self, limits, bubble_handler):
+    def __init__(self, limits, bubble_handler, flash_handler):
 
         Fish.__init__(self, limits, bubble_handler)
 
-        self.surface = pygame.image.load('Diver.png')
+        self.surface = pygame.image.load('diver.png')
 
         self.health_points = 2
 
@@ -270,6 +343,7 @@ class Diver(Fish):
 
         self.photo_distance = 100
         self.photo = False
+        self.flash_handler = flash_handler
 
     def update(self, time_elapsed, taniwha):
 
@@ -281,6 +355,7 @@ class Diver(Fish):
 
                 if (taniwha.position.y - self.photo_distance) < self.position.y < (taniwha.position.y + self.photo_distance):
                     self.photo = True
+                    self.flash_handler(self.position)
 
             if (taniwha.position.x + self.photo_distance) < self.position.x:
                 self.position.x -= distance
@@ -315,7 +390,6 @@ class Diver(Fish):
                 self.last_bubble_lot = current_time
 
 
-
 class Bubble:
 
     def __init__(self, pos=Position()):
@@ -323,12 +397,29 @@ class Bubble:
         self.position = pos
         self.speed = 500
 
-        self.surface = pygame.image.load('Bubble.png')
+        self.surface = pygame.image.load('bubble.png')
+        self.surface = pygame.transform.rotate(self.surface, random.randint(0, 359))
 
     def update(self, time_elapsed):
 
         self.position.y -= self.speed * time_elapsed
         self.position.x += self.speed * time_elapsed * random.uniform(-1.3, 1.3)
+
+
+class Flash:
+
+    def __init__(self, pos=Position()):
+
+        self.position = pos
+
+        self.time_left = 0.1
+
+        self.surface = pygame.image.load('flash.png')
+        self.surface = pygame.transform.rotate(self.surface, random.randint(0, 359))
+
+    def update(self, time_elapsed):
+
+        self.time_left -= time_elapsed
 
 
 def point_outside(point, limits):
@@ -376,17 +467,27 @@ def main():
 
     # Init world objects
     taniwha = Taniwha(world_limits)
-    number_fish = 5
-    number_divers = 2
+    number_fish = settings['number_fish']
+    number_divers = settings['number_divers']
 
     bubbles = []
+    flash = []
 
     def create_bubble(pos):
 
         bubbles.append(Bubble(pos))
 
-    fish = [Fish(world_limits, create_bubble) for i in range(number_fish)]
-    divers = [Diver(world_limits, create_bubble) for i in range(number_divers)]
+    def create_flash(pos):
+
+        flash.append(Flash(pos))
+
+    fish = [Fish(world_limits, create_bubble, True) for i in range(number_fish)]
+    divers = [Diver(world_limits, create_bubble, create_flash) for i in range(number_divers)]
+
+    background = Background(world_limits)
+    menu_background = MenuBackground(world_limits)
+
+    energy_bar = EnergyBar(world_limits)
 
     # Bubble particle check
     bubble_check = time.time()
@@ -394,106 +495,148 @@ def main():
     # Initialize the variable game loop time step
     last_time = time.time()
 
+    in_menu = True
+    in_game = False
+
     while True:
 
-        # The heart of the variable game loop. Keeps track of how long a frame takes to complete
-        current_time = time.time()
-        time_elapsed = current_time - last_time
-        last_time = current_time
+        while in_menu:
 
-        window.fill((0, 0, 128))
+            current_time = time.time()
+            time_elapsed = current_time - last_time
+            last_time = current_time
 
-        keys = pygame.key.get_pressed()
-        for event in pygame.event.get():
+            window.blit(menu_background.menu_surface, (0, 0))
 
-            if event.type == pygame.QUIT:
-                pygame.quit()
+            pygame.display.update()
 
-            if event.type == pygame.KEYDOWN:
+            for event in pygame.event.get():
 
-                if event.key == pygame.K_ESCAPE:
+                if event.type == pygame.QUIT:
                     pygame.quit()
 
-            if event.type == pygame.JOYAXISMOTION:
+                if event.type == pygame.KEYDOWN:
 
-                taniwha.joystick = joystick
+                    if event.key == pygame.K_ESCAPE:
+                        pygame.quit()
 
-            if event.type == pygame.MOUSEMOTION:
+                    else:
+                        in_menu = False
+                        in_game = True
 
-                taniwha.joystick = None
+        while in_game:
 
-        # Update game objects
-        taniwha.update(time_elapsed, keys)
-        taniwha.update_focal(time_elapsed)
+            # The heart of the variable game loop. Keeps track of how long a frame takes to complete
+            current_time = time.time()
+            time_elapsed = current_time - last_time
+            last_time = current_time
 
-        fish_copy = fish
+            window.blit(background.surface, (0, 0))
 
-        for f in fish:
-            f.update(time_elapsed, taniwha)
+            keys = pygame.key.get_pressed()
+            for event in pygame.event.get():
 
-        for f in fish_copy:
-            if f.health_points < 0:
-                fish.remove(f)
+                if event.type == pygame.QUIT:
+                    pygame.quit()
 
-            if point_outside(f.position, world_limits):
-                fish.remove(f)
+                if event.type == pygame.KEYDOWN:
 
-        if len(fish) < number_fish:
-            fish.append(Fish(world_limits, create_bubble))
+                    if event.key == pygame.K_ESCAPE:
+                        in_game = False
+                        in_menu = True
 
-        divers_copy = divers
+                if event.type == pygame.JOYAXISMOTION:
 
-        for diver in divers:
-            diver.update(time_elapsed, taniwha)
+                    taniwha.joystick = joystick
 
-        for diver in divers_copy:
-            if diver.health_points < 0:
-                divers.remove(diver)
+                if event.type == pygame.MOUSEMOTION:
 
-            if point_outside(diver.position, world_limits):
-                divers.remove(diver)
+                    taniwha.joystick = None
 
-        if len(divers) < number_divers:
-            divers.append(Diver(world_limits, create_bubble))
+            # Update game objects
+            taniwha.update(time_elapsed, keys)
+            taniwha.update_focal(time_elapsed)
 
-        # Update Bubbles
-        bubbles_copy = bubbles
+            fish_copy = fish
 
-        for bubble in bubbles:
-            bubble.update(time_elapsed)
+            for f in fish:
+                f.update(time_elapsed, taniwha)
 
-        for bubble in bubbles_copy:
-            if bubble.position.y < 0:
-                bubbles.remove(bubble)
+            for f in fish_copy:
 
-        # Render all game objects
-        window.blit(taniwha.surface, taniwha.position.get())
-        vector_position = (int(taniwha.position.x + taniwha.vector_point.x),
-                           int(taniwha.position.y + taniwha.vector_point.y))
-        focal_point = (int(taniwha.focal_point.x), int(taniwha.focal_point.y))
-        pygame.draw.circle(window, (255, 0, 0), vector_position, 5)
-        pygame.draw.circle(window, (255, 64, 0), focal_point, 5)
-        for f in fish:
-            window.blit(f.surface, f.position.get())
+                if point_outside(f.position, world_limits):
+                    fish.remove(f)
 
-        for diver in divers:
-            window.blit(diver.surface, diver.position.get())
+            if len(fish) < number_fish:
+                fish.append(Fish(world_limits, create_bubble))
 
-        if taniwha.lasers_on:
-            for laser in taniwha.lasers:
-                pygame.draw.line(window, (245, 50, 77), laser.start.get(), laser.focal.get(), 8)
-                pygame.draw.line(window, (215, 114, 94), laser.start.get(), laser.focal.get(), 3)
+            divers_copy = divers
 
-                if current_time > (bubble_check + random.uniform(0.02, 0.05)):
-                    bubble_check = current_time
+            for diver in divers:
+                diver.update(time_elapsed, taniwha)
 
-                    b_pos = Position(taniwha.focal_point.x, taniwha.focal_point.y)
-                    create_bubble(b_pos)
+            for diver in divers_copy:
+                if diver.health_points < 0:
+                    divers.remove(diver)
 
-        for bubble in bubbles:
-            window.blit(bubble.surface, bubble.position.get())
+                if point_outside(diver.position, world_limits):
+                    divers.remove(diver)
+                    in_game = False
+                    in_menu = True
 
-        pygame.display.update()
+            if len(divers) < number_divers:
+                divers.append(Diver(world_limits, create_bubble, create_flash))
+
+            # Update Bubbles
+            bubbles_copy = bubbles
+
+            for bubble in bubbles:
+                bubble.update(time_elapsed)
+
+            for bubble in bubbles_copy:
+                if bubble.position.y < 0:
+                    bubbles.remove(bubble)
+
+            # Update flash
+            flash_copy = flash
+
+            for f in flash:
+                f.update(time_elapsed)
+
+            for f in flash_copy:
+                if f.time_left < 0:
+                    flash.remove(f)
+
+            # Render all game objects
+            window.blit(taniwha.surface, taniwha.position.get_center(taniwha.surface))
+
+            focal_point = (int(taniwha.focal_point.x), int(taniwha.focal_point.y))
+
+            pygame.draw.circle(window, (255, 64, 0), focal_point, 5)
+            for f in fish:
+                window.blit(f.surface, f.position.get())
+
+            for diver in divers:
+                window.blit(diver.surface, diver.position.get())
+
+            if taniwha.lasers_on:
+                for laser in taniwha.lasers:
+                    pygame.draw.line(window, (245, 50, 77), laser.start.get(), laser.focal.get(), 8)
+                    pygame.draw.line(window, (215, 114, 94), laser.start.get(), laser.focal.get(), 3)
+
+                    if current_time > (bubble_check + random.uniform(0.02, 0.05)):
+                        bubble_check = current_time
+
+                        b_pos = Position(taniwha.focal_point.x, taniwha.focal_point.y)
+                        create_bubble(b_pos)
+
+            for bubble in bubbles:
+                window.blit(bubble.surface, bubble.position.get())
+
+            for f in flash:
+                window.blit(f.surface, f.position.get())
+
+            pygame.display.update()
 
 
 if __name__ == '__main__':

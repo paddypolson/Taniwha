@@ -1,0 +1,9 @@
+Welcome to Taniwha
+You play the role of a Taniwha from Maori legend.
+No Taniwha has ever been seen so don't let the
+divers take a photo of you and reach the surface.
+Luckily you have laser eyes so you can fry them.
+Do Taniwha's have laser eyes? Probably.
+Uses W,A,S,D to move, mouse to target and space to fire.
+Also has controller support.
+Press the any key to start.
